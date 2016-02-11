@@ -6,18 +6,16 @@
 const char* dgemm_desc = "SSE blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 64
+#define BLOCK_SIZE 48
 #endif
  
 #define min(a,b) (((a)<(b))?(a):(b))
 
-#define SSE_SIZE 4
-#define UNROLL_SIZE 4
 
 /* This auxiliary subroutine performs a smaller dgemm operation
- *  C := C + A * B
+ *  C := C + A * B'
  * where C is M-by-N, A is M-by-K, and B is K-by-N. */
-static int adjustSize (int size, int step);
+static int adjustSize (int size, int step)
 {
   int newSize;
   if (size % step == 0) return size;
@@ -29,30 +27,30 @@ static int adjustSize (int size, int step);
 
 }
 
-static void do_block (int M, int N, int K, double* A, double* B, double* C)
+static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C)
 {
   __m256d a0, a1, b0, b1, b2, b3, b4, b5, b6, b7, c0, c1, c2, c3;
 
   for (int k = 0; k < K; k += 2) {
     for (int j = 0; j < N; j += 4) {
       
-      b0 = _mm256_set1_pd(B[k+j*K]);
-      b1 = _mm256_set1_pd(B[(k+1)+j*K]);
-      b2 = _mm256_set1_pd(B[k+(j+1)*K]);
-      b3 = _mm256_set1_pd(B[(k+1)+(j+1)*K]);
-      b4 = _mm256_set1_pd(B[k+(j+2)*K]);
-      b5 = _mm256_set1_pd(B[(k+1)+(j+2)*K]);
-      b6 = _mm256_set1_pd(B[k+(j+3)*K]);
-      b7 = _mm256_set1_pd(B[k+(j+3)*K]);
+      b0 = _mm256_set1_pd(B[k+j*lda]);
+      b1 = _mm256_set1_pd(B[(k+1)+j*lda]);
+      b2 = _mm256_set1_pd(B[k+(j+1)*lda]);
+      b3 = _mm256_set1_pd(B[(k+1)+(j+1)*lda]);
+      b4 = _mm256_set1_pd(B[k+(j+2)*lda]);
+      b5 = _mm256_set1_pd(B[(k+1)+(j+2)*lda]);
+      b6 = _mm256_set1_pd(B[k+(j+3)*lda]);
+      b7 = _mm256_set1_pd(B[k+1+(j+3)*lda]);
 
       for (int i = 0; i < M; i += 4) {
-        a0 = _mm256_load_pd(A+i+k*M);
-        a1 = _mm256_load_pd(A+i+(k+1)*M);
+        a0 = _mm256_load_pd(A+i+k*lda);
+        a1 = _mm256_load_pd(A+i+(k+1)*lda);
 
-        c0 = _mm256_load_pd(C+i+j*M);
-        c1 = _mm256_load_pd(C+i+(j+1)*M);
-        c2 = _mm256_load_pd(C+i+(j+2)*M);
-        c3 = _mm256_load_pd(C+i+(j+3)*M);
+        c0 = _mm256_load_pd(C+i+j*lda);
+        c1 = _mm256_load_pd(C+i+(j+1)*lda);
+        c2 = _mm256_load_pd(C+i+(j+2)*lda);
+        c3 = _mm256_load_pd(C+i+(j+3)*lda);
 
         c0 = _mm256_add_pd(c0, _mm256_mul_pd(a0,b0));
         c0 = _mm256_add_pd(c0, _mm256_mul_pd(a1,b1));
@@ -63,10 +61,10 @@ static void do_block (int M, int N, int K, double* A, double* B, double* C)
         c3 = _mm256_add_pd(c3, _mm256_mul_pd(a0,b6));
         c3 = _mm256_add_pd(c3, _mm256_mul_pd(a1,b7));
 
-        _mm256_store_pd(C+i+j*M, c0);
-        _mm256_store_pd(C+i+(j+1)*M, c1);
-        _mm256_store_pd(C+i+(j+2)*M, c2);
-        _mm256_store_pd(C+i+(j+3)*M, c3);
+        _mm256_store_pd(C+i+j*lda, c0);
+        _mm256_store_pd(C+i+(j+1)*lda, c1);
+        _mm256_store_pd(C+i+(j+2)*lda, c2);
+        _mm256_store_pd(C+i+(j+3)*lda, c3);
 
       }
     }
@@ -87,7 +85,7 @@ static void copy_block(int lda, int height, int width, double* A, double* padded
 
   for (int j = 0; j < width; j++)
   {
-    memcpy(A+j*lda, padded_A+j*heightAdjusted, height * sizeof(double));
+    memcpy(padded_A+j*heightAdjusted, A+j*lda, height * sizeof(double));
     for (int i = height; i < heightAdjusted; i++)
       padded_A[i+j*heightAdjusted] = 0.0;
   }
@@ -106,7 +104,7 @@ static void store_block(int lda, int height, int width, double* A, double* padde
   int widthAdjusted = adjustSize(width, 4);
 
   for (int j = 0; j < width; j++){
-    memcpy(padded_A+j*heightAdjusted, A+j*lda, height * sizeof(double));
+    memcpy(A+j*lda, padded_A+j*heightAdjusted, height * sizeof(double));
   }
 }
 
@@ -120,9 +118,9 @@ void square_dgemm (int lda, double* A, double* B, double* C)
   
   int adjusted_lda = adjustSize(lda, 4);
 
-  double* padded_A = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
-  double* padded_B = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
-  double* padded_C = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
+  double* padded_A = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
+  double* padded_B = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
+  double* padded_C = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
 
   copy_block(lda, lda, lda, A, padded_A);
   copy_block(lda, lda, lda, B, padded_B);
@@ -142,7 +140,8 @@ void square_dgemm (int lda, double* A, double* B, double* C)
         int K = min (BLOCK_SIZE, adjusted_lda-k);
 
         /* Perform individual block dgemm */
-        do_block(lda, M, N, K, padded_A + i + k*lda, padded_B + k + j*lda, padded_C + i + j*lda);
+        do_block(adjusted_lda, M, N, K, 
+          padded_A + i + k*adjusted_lda, padded_B + k + j*adjusted_lda, padded_C + i + j*adjusted_lda);
       }
   
   store_block(lda, lda, lda, C, padded_C);
