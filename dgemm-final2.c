@@ -6,7 +6,8 @@
 const char* dgemm_desc = "SSE blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 48
+#define BLOCK_SIZE_SMALL 40
+#define BLOCK_SIZE_LARGE 120
 #endif
  
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -27,7 +28,7 @@ static int adjustSize (int size, int step)
 
 }
 
-static void do_block (int lda, int M, int N, int K, double* A, double* B, double* C)
+static void do_block_small (int lda, int M, int N, int K, double* A, double* B, double* C)
 {
   __m256d a0, a1, b0, b1, b2, b3, b4, b5, b6, b7, c0, c1, c2, c3;
 
@@ -83,8 +84,8 @@ static void copy_block(int lda, int height, int width, double* A, double* padded
   int heightAdjusted = adjustSize(height, 4);
   int widthAdjusted = adjustSize(width, 4);
 
-  if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
-  if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
+  //if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
+  //if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
 
 
   for (int j = 0; j < width; j++)
@@ -107,8 +108,8 @@ static void store_block(int lda, int height, int width, double* A, double* padde
   int heightAdjusted = adjustSize(height, 4);
   int widthAdjusted = adjustSize(width, 4);
 
-  if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
-  if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
+  //if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
+  //if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
 
 
   for (int j = 0; j < width; j++){
@@ -116,42 +117,56 @@ static void store_block(int lda, int height, int width, double* A, double* padde
   }
 }
 
+static void do_block_large(int lda, int M, int N, int K, double* A, double* B, double* C)
+{
+  for (int k = 0; k < K; k += BLOCK_SIZE_SMALL)
+    for (int j = 0; j < N; j += BLOCK_SIZE_SMALL)
+      for(int i = 0; i < M; i += BLOCK_SIZE_SMALL)
+      {
+        int Ms = min(BLOCK_SIZE_SMALL, M-i);
+        int Ns = min(BLOCK_SIZE_SMALL, N-j);
+        int Ks = min(BLOCK_SIZE_SMALL, K-j);
+
+        do_block_small(lda, Ms, Ns, Ks, A+i+k*lda, B+k+j*lda, C+i+j*lda);
+      }
+}
+
+
 
 void square_dgemm (int lda, double* A, double* B, double* C)
 {
   
-  int blockRowSize = 40;
-  int blockColSize = 40;
-  int block3rdSize = 40;
+  int adjusted_lda = adjustSize(lda, 4);
+  //if(lda % 128 == 0 || lda % 128 == 127)
+   // adjusted_lda += 8;
 
-  double* block_A = (double*)malloc((blockColSize * block3rdSize)+100)*sizeof(double));
-  double* block_B = (double*)malloc((block3rdSize * blockRowSize)+100)*sizeof(double));
-  double* block_C = (double*)malloc((blockColSize * blockRowSize)+100)*sizeof(double));
+  double* padded_A = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
+  double* padded_B = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
+  double* padded_C = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
 
-  for(int k = 0; k < lda; k += block3rdSize){
-    int K = min(block3rdSize, lda - k);
-    int adjusted_K = adjustSize(K, 4);
-    copy_block(lda, K, lda, B+k, block_B);
-    
-    for(int i = 0; i < lda; i += blockColSize){
-      int M = min(blockColSize, lda - i);
-      int adjusted_M = adjustSize(M, 4);
-      copy_block(lda, M, K, A+i+k*lda, block_A);
+  copy_block(lda, lda, lda, A, padded_A);
+  copy_block(lda, lda, lda, B, padded_B);
+  copy_block(lda, lda, lda, C, padded_C);
 
-      for(int j = 0; j < lda; j += blockRowSize){
-        int N = min(blockRowSize, lda - j);
-        int adjusted_N = adjustSize(N, 4);
-        copy_block(lda, M, N, C+i+j*lda, block_C);
 
-        do_block(lda, M, N, K, block_A, block_B + j * adjusted_K, block_C);
-        
-        store_block(lda, M, N, C+i+j*lda, block_C);
+  /* For each block-row of A */ 
+  for (int k = 0; k < adjusted_lda; k += BLOCK_SIZE_LARGE)
+    /* For each block-column of B */
+    for (int j = 0; j < adjusted_lda; j += BLOCK_SIZE_LARGE)
+      /* Accumulate block dgemms into block of C */
+      for (int i = 0; i < adjusted_lda; i += BLOCK_SIZE_LARGE)
+      {
+        /* Correct block dimensions if block "goes off edge of" the matrix */
+        int M = min (BLOCK_SIZE_LARGE, adjusted_lda-i);
+        int N = min (BLOCK_SIZE_LARGE, adjusted_lda-j);
+        int K = min (BLOCK_SIZE_LARGE, adjusted_lda-k);
 
+        /* Perform individual block dgemm */
+        do_block_large(adjusted_lda, M, N, K, 
+          padded_A + i + k*adjusted_lda, padded_B + k + j*adjusted_lda, padded_C + i + j*adjusted_lda);
       }
-      
-    }
-
-  }
+  
+  store_block(lda, lda, lda, C, padded_C);
 
   free(padded_A);
   free(padded_B);

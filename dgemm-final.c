@@ -6,7 +6,7 @@
 const char* dgemm_desc = "SSE blocked dgemm.";
 
 #if !defined(BLOCK_SIZE)
-#define BLOCK_SIZE 48
+#define BLOCK_SIZE 40
 #endif
  
 #define min(a,b) (((a)<(b))?(a):(b))
@@ -44,13 +44,13 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
       b7 = _mm256_set1_pd(B[k+1+(j+3)*lda]);
 
       for (int i = 0; i < M; i += 4) {
-        a0 = _mm256_load_pd(A+i+k*lda);
-        a1 = _mm256_load_pd(A+i+(k+1)*lda);
+        a0 = _mm256_loadu_pd(A+i+k*lda);
+        a1 = _mm256_loadu_pd(A+i+(k+1)*lda);
 
-        c0 = _mm256_load_pd(C+i+j*lda);
-        c1 = _mm256_load_pd(C+i+(j+1)*lda);
-        c2 = _mm256_load_pd(C+i+(j+2)*lda);
-        c3 = _mm256_load_pd(C+i+(j+3)*lda);
+        c0 = _mm256_loadu_pd(C+i+j*lda);
+        c1 = _mm256_loadu_pd(C+i+(j+1)*lda);
+        c2 = _mm256_loadu_pd(C+i+(j+2)*lda);
+        c3 = _mm256_loadu_pd(C+i+(j+3)*lda);
 
         c0 = _mm256_add_pd(c0, _mm256_mul_pd(a0,b0));
         c0 = _mm256_add_pd(c0, _mm256_mul_pd(a1,b1));
@@ -61,10 +61,10 @@ static void do_block (int lda, int M, int N, int K, double* A, double* B, double
         c3 = _mm256_add_pd(c3, _mm256_mul_pd(a0,b6));
         c3 = _mm256_add_pd(c3, _mm256_mul_pd(a1,b7));
 
-        _mm256_store_pd(C+i+j*lda, c0);
-        _mm256_store_pd(C+i+(j+1)*lda, c1);
-        _mm256_store_pd(C+i+(j+2)*lda, c2);
-        _mm256_store_pd(C+i+(j+3)*lda, c3);
+        _mm256_storeu_pd(C+i+j*lda, c0);
+        _mm256_storeu_pd(C+i+(j+1)*lda, c1);
+        _mm256_storeu_pd(C+i+(j+2)*lda, c2);
+        _mm256_storeu_pd(C+i+(j+3)*lda, c3);
 
       }
     }
