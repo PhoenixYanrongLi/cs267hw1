@@ -83,6 +83,10 @@ static void copy_block(int lda, int height, int width, double* A, double* padded
   int heightAdjusted = adjustSize(height, 4);
   int widthAdjusted = adjustSize(width, 4);
 
+  if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
+  if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
+
+
   for (int j = 0; j < width; j++)
   {
     memcpy(padded_A+j*heightAdjusted, A+j*lda, height * sizeof(double));
@@ -103,6 +107,10 @@ static void store_block(int lda, int height, int width, double* A, double* padde
   int heightAdjusted = adjustSize(height, 4);
   int widthAdjusted = adjustSize(width, 4);
 
+  if(width % 128 == 0 || width % 128 == 127) widthAdjusted += 8;
+  if(height % 128 == 0 || height % 128 == 127) heightAdjusted += 8;  
+
+
   for (int j = 0; j < width; j++){
     memcpy(A+j*lda, padded_A+j*heightAdjusted, height * sizeof(double));
   }
@@ -117,10 +125,12 @@ void square_dgemm (int lda, double* A, double* B, double* C)
 {
   
   int adjusted_lda = adjustSize(lda, 4);
+  if(lda % 128 == 0 || lda % 128 == 127)
+    adjusted_lda += 8;
 
-  double* padded_A = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
-  double* padded_B = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
-  double* padded_C = (double*)malloc((adjusted_lda * adjusted_lda+3000)*sizeof(double));
+  double* padded_A = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
+  double* padded_B = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
+  double* padded_C = (double*)malloc((adjusted_lda * adjusted_lda+1000)*sizeof(double));
 
   copy_block(lda, lda, lda, A, padded_A);
   copy_block(lda, lda, lda, B, padded_B);
