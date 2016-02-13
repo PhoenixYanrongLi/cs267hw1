@@ -1,0 +1,44 @@
+# on Edision we will benchmark you against the default vendor-tuned BLAS. The compiler wrappers handle all the linking. If you wish to compare with other BLAS implementations, check the NERSC documentation.
+# This makefile is intended for the GNU C compiler. To change compilers, you need to type something like: "module swap PrgEnv-pgi PrgEnv-gnu" See the NERSC documentation for available compilers.
+
+CC = cc 
+OPT = -O3 -mavx
+#CFLAGS = -Wall -std=gnu99 $(OPT)
+CFLAGS = -Wall -std=gnu99 $(OPT) -msse4
+LDFLAGS = -Wall
+# librt is needed for clock_gettime
+LDLIBS = -lrt
+
+targets = benchmark-naive benchmark-blocked benchmark-sse-block benchmark-naive-SSE benchmark-blocked-SSE benchmark-final benchmark-final2 benchmark-final3
+objects = benchmark.o dgemm-naive.o dgemm-blocked.o dgemm-sse-block.o benchmark-naive-SSE dgemm-blocked-SSE.o dgemm-final.o dgemm-final2.o dgemm-final3.o
+
+.PHONY : default
+default : all
+
+.PHONY : all
+all : clean $(targets)
+
+benchmark-naive : benchmark.o dgemm-naive.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-blocked : benchmark.o dgemm-blocked.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-sse-block : benchmark.o dgemm-sse-block.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-naive-SSE : benchmark.o dgemm-naive-SSE.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-blocked-SSE : benchmark.o dgemm-blocked-SSE.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-final: benchmark.o dgemm-final.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-final2: benchmark.o dgemm-final2.o
+	$(CC) -o $@ $^ $(LDLIBS)
+benchmark-final3: benchmark.o dgemm-final3.o
+	$(CC) -o $@ $^ $(LDLIBS)
+
+
+%.o : %.c
+	$(CC) -c $(CFLAGS) $<
+
+.PHONY : clean
+clean:
+	rm -f $(targets) $(objects)
